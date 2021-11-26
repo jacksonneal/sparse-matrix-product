@@ -1,9 +1,11 @@
 package product
 
 import org.apache.log4j.LogManager
+import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
 object SparseProduct {
+  type SparseRDD = RDD[(Long, Long, Long)] // (x, y, v)
 
   def main(args: Array[String]) {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
@@ -23,5 +25,21 @@ object SparseProduct {
     // TODO: Perform block partition product of sparse matrices
 
     // TODO: Write result to output
+  }
+
+  private def naiveSparseProduct(left: SparseRDD, right: SparseRDD): SparseRDD = {
+    val m = left.map {
+      case (x, y, v) => (y, (x, v))
+    }
+    val n = right.map {
+      case (y, z, v) => (y, (z, v))
+    }
+
+    val product = m.join(n).map {
+      case (_, ((x, v), (z, w))) => ((x, z), v * w)
+    }.reduceByKey(_ + _).map {
+      case ((x, z), sum) => (x, z, sum)
+    }
+    product
   }
 }
