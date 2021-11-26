@@ -11,7 +11,7 @@ object MatrixGenerator {
       logger.error("Usage:\ngenerator.MatrixGenerator <i> <j> <k> <output_dir>")
       System.exit(1)
     }
-    val conf = new SparkConf().setAppName("Matrix Generator").setMaster("local[4]")
+    val conf = new SparkConf().setAppName("Matrix Generator")/*.setMaster("local[4]")*/
     val sc = new SparkContext(conf)
 
     // matrixLeft has dimension i * j, matrixRight has dimension j * k
