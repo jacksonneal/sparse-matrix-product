@@ -2,7 +2,6 @@ package generator
 
 import org.apache.log4j.LogManager
 import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.mllib.random.RandomRDDs
 
 object MatrixGenerator {
   private val MAX = 100
