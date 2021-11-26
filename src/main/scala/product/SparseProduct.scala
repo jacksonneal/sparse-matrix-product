@@ -9,7 +9,7 @@ object SparseProduct {
 
   def main(args: Array[String]) {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-    if (args.length != 5) {
+    if (args.length != 3) {
       logger.error("Usage:\nproduct.SparseProduct <left> <right> <output_dir>")
       System.exit(1)
     }
@@ -20,13 +20,21 @@ object SparseProduct {
     val rightDir = args(1)
     val output = args(2)
 
-    // TODO: Load left and right as RDD/DF
+    val left = sc.textFile(leftDir).map(line => {
+      val split = line.substring(1, line.length() - 1).split(",")
+      (split(0).toLong, split(1).toLong, split(2).toLong)
+    })
+    val right = sc.textFile(rightDir).map(line => {
+      val split = line.substring(1, line.length() - 1).split(",")
+      (split(0).toLong, split(1).toLong, split(2).toLong)
+    })
 
-    // TODO: Perform block partition product of sparse matrices
+    val product = this.naiveSparseProduct(left, right)
 
-    // TODO: Write result to output
+    product.saveAsTextFile(output + "product")
   }
 
+  // Partition col-row
   private def naiveSparseProduct(left: SparseRDD, right: SparseRDD): SparseRDD = {
     val m = left.map {
       case (x, y, v) => (y, (x, v))
