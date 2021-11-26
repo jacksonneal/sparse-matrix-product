@@ -34,6 +34,11 @@ object SparseProduct {
     product.saveAsTextFile(output + "product")
   }
 
+  // TODO: Block partition
+  private def sparseProduct(left: SparseRDD, right: SparseRDD): SparseRDD = {
+    left
+  }
+
   // Partition col-row
   private def naiveSparseProduct(left: SparseRDD, right: SparseRDD): SparseRDD = {
     val m = left.map {
