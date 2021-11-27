@@ -31,6 +31,13 @@
             <version>${spark.version}</version>
             <scope>provided</scope>
         </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-mllib -->
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-mllib_2.12</artifactId>
+            <version>${spark.version}</version>
+            <scope>provided</scope>
+        </dependency>
         <!-- Example of dependency included in fat Jar package. -->
         <!--
         <dependency>
