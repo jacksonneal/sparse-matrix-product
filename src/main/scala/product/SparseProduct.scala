@@ -20,18 +20,19 @@ object SparseProduct {
     val rightDir = args(1)
     val output = args(2)
 
-    val left = sc.textFile(leftDir).map(line => {
-      val split = line.substring(1, line.length() - 1).split(",")
-      (split(0).toLong, split(1).toLong, split(2).toLong)
-    })
-    val right = sc.textFile(rightDir).map(line => {
-      val split = line.substring(1, line.length() - 1).split(",")
-      (split(0).toLong, split(1).toLong, split(2).toLong)
-    })
+    val left = parseSparse(sc, leftDir)
+    val right = parseSparse(sc, rightDir)
 
-    val product = this.naiveSparseProduct(left, right)
+    val product = this.vhSparseProduct(left, right)
 
     product.saveAsTextFile(output + "product")
+  }
+
+  private def parseSparse(sc: SparkContext, dir: String): SparseRDD = {
+    sc.textFile(dir).map(line => {
+      val split = line.substring(1, line.length() - 1).split(",")
+      (split(0).toLong, split(1).toLong, split(2).toLong)
+    })
   }
 
   // TODO: Block partition
@@ -39,8 +40,8 @@ object SparseProduct {
     left
   }
 
-  // Partition col-row
-  private def naiveSparseProduct(left: SparseRDD, right: SparseRDD): SparseRDD = {
+  // Vertical-Horizontal partition
+  private def vhSparseProduct(left: SparseRDD, right: SparseRDD): SparseRDD = {
     val m = left.map {
       case (x, y, v) => (y, (x, v))
     }
