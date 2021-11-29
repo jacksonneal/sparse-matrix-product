@@ -1,12 +1,14 @@
 package generator
 
 import org.apache.log4j.LogManager
+import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
 object MatrixGenerator {
   private val MAX = 100
+  type SparseRDD = RDD[(Long, Long, Int)] // (x, y, v)
 
-  def main(args: Array[String]) {
+  def main(args: Array[String]): Unit = {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
     if (args.length != 5) {
       logger.error("Usage:\ngenerator.MatrixGenerator <i> <j> <k> <fill> <output_dir>")
@@ -16,35 +18,30 @@ object MatrixGenerator {
     val sc = new SparkContext(conf)
 
     // matrixLeft has dimension i * j, matrixRight has dimension j * k
-    val i = args(0)
-    val j = args(1)
-    val k = args(2)
+    val i = args(0).toLong
+    val j = args(1).toLong
+    val k = args(2).toLong
 
     // Used as probability that matrix value is non-zero
-    val fill_prob = args(3).toDouble
+    val density = args(3).toDouble
 
     val output = args(4)
 
-    val r = scala.util.Random
-
-    val x = sc.range(0, i.toLong)
-    val y = sc.range(0, j.toLong)
-    val z = sc.range(0, k.toLong)
-
-    val left = x.cartesian(y).map {
-      case (x, y) => (x, y, if (r.nextDouble() < fill_prob) r.nextInt(MAX) else 0)
-    }.filter {
-      case (x, y, v) => v != 0
-    }
-
-    val right = y.cartesian(z).map {
-      case (x, y) => (x, y, if (r.nextDouble() < fill_prob) r.nextInt(MAX) else 0)
-    }.filter {
-      case (x, y, v) => v != 0
-    }
+    val left = this.getSparseMatrix(sc, i, j, density)
+    val right = this.getSparseMatrix(sc, j, k, density)
 
     left.saveAsTextFile(output + "left")
-
     right.saveAsTextFile(output + "right")
+  }
+
+  private def getSparseMatrix(sc: SparkContext, n: Long, m: Long, density: Double): SparseRDD = {
+    val r = scala.util.Random
+    val i = sc.range(0, n)
+    val j = sc.range(0, m)
+    i.cartesian(j).map {
+      case (i, j) => (i, j, if (r.nextDouble() < density) r.nextInt(MAX) else 0)
+    }.filter {
+      case (_, _, v) => v != 0
+    }
   }
 }
