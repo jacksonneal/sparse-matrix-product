@@ -6,7 +6,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object MatrixGenerator {
   private val MAX = 100
-  type SparseRDD = RDD[(Long, Long, Int)] // (x, y, v)
+  type SparseRDD = RDD[(Long, Long, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
@@ -39,7 +39,7 @@ object MatrixGenerator {
     val i = sc.range(0, n)
     val j = sc.range(0, m)
     i.cartesian(j).map {
-      case (i, j) => (i, j, if (r.nextDouble() < density) r.nextInt(MAX) else 0)
+      case (i, j) => (i, j, if (r.nextDouble() < density) r.nextInt(MAX).toLong else 0)
     }.filter {
       case (_, _, v) => v != 0
     }

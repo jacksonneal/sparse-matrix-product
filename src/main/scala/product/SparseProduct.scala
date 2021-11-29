@@ -5,9 +5,9 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
 object SparseProduct {
-  type SparseRDD = RDD[(Long, Long, Long)] // (x, y, v)
+  type SparseRDD = RDD[(Long, Long, Long)] // (i, j, k)
 
-  def main(args: Array[String]) {
+  def main(args: Array[String]): Unit = {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
     if (args.length != 3) {
       logger.error("Usage:\nproduct.SparseProduct <left> <right> <output_dir>")
