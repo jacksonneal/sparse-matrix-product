@@ -5,7 +5,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
 object SparseProduct {
-  type SparseRDD = RDD[(Long, Long, Long)] // (i, j, k)
+  type SparseRDD = RDD[(Long, Long, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
@@ -35,25 +35,23 @@ object SparseProduct {
     })
   }
 
-  // TODO: Block partition
-  private def sparseProduct(left: SparseRDD, right: SparseRDD): SparseRDD = {
+  // Block partition
+  private def bbSparseProduct(left: SparseRDD, right: SparseRDD): SparseRDD = {
     left
   }
 
   // Vertical-Horizontal partition
   private def vhSparseProduct(left: SparseRDD, right: SparseRDD): SparseRDD = {
-    val m = left.map {
-      case (x, y, v) => (y, (x, v))
+    val l_col = left.map {
+      case (i, j, v) => (j, (i, v))
     }
-    val n = right.map {
-      case (y, z, v) => (y, (z, v))
+    val r_row = right.map {
+      case (i, j, v) => (i, (j, v))
     }
-
-    val product = m.join(n).map {
-      case (_, ((x, v), (z, w))) => ((x, z), v * w)
+    l_col.join(r_row).map {
+      case (_, ((i, v), (j, w))) => ((i, j), v * w)
     }.reduceByKey(_ + _).map {
-      case ((x, z), sum) => (x, z, sum)
+      case ((i, j), v) => (i, j, v)
     }
-    product
   }
 }
