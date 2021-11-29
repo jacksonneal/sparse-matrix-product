@@ -5,21 +5,24 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{HashPartitioner, SparkConf, SparkContext}
 
 object SparseProduct {
-  type SparseRDD = RDD[(Long, Long, Long)] // (i, j, v)
   private final val NUM_PARTITIONS = 10
+  type SparseRDD = RDD[(Long, Long, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-    if (args.length != 3) {
-      logger.error("Usage:\nproduct.SparseProduct <a_dir> <b_dir> <output_dir>")
+    if (args.length != 4) {
+      logger.error("Usage:\nproduct.SparseProduct <n> <a_dir> <b_dir> <output_dir>")
       System.exit(1)
     }
     val conf = new SparkConf().setAppName("Sparse Product").setMaster("local[4]")
     val sc = new SparkContext(conf)
 
-    val aDir = args(0)
-    val bDir = args(1)
-    val output = args(2)
+    // Both a and b matrices have dimension nxn
+    val n = args(0).toLong
+
+    val aDir = args(1)
+    val bDir = args(2)
+    val output = args(3)
 
     val a = parseSparse(sc, aDir)
     val b = parseSparse(sc, bDir)
@@ -37,7 +40,7 @@ object SparseProduct {
   }
 
   // Block partition: Naive Block Row
-  private def naiveBlockRowSparseProduct(a: SparseRDD, b: SparseRDD): SparseRDD = {
+  private def naiveBlockRowSparseProduct(a: SparseRDD, b: SparseRDD, n: Long): SparseRDD = {
     val partitioner = new HashPartitioner(NUM_PARTITIONS)
     val a_row = a.map {
       case (i, j, v) => (i, (j, v))
@@ -45,17 +48,23 @@ object SparseProduct {
     val b_coord = b.map {
       case (i, j, v) => ((i, j), v)
     }
-    // We can either persist it, or spread it around and message pass it...
     b_coord.persist()
-    a_row.partitionBy(partitioner).groupByKey().map {
-      case (i: Long, vals: Iterable[(Long, Long)]) => {
-        val ret = 0
-        for ((j, v) <- vals) {
-          ret += r.lookup((i, j)).head * v
+    a_row.partitionBy(partitioner).groupByKey().flatMapValues {
+      case (values: Iterable[(Long, Long)]) =>
+        val a_i = Array[Long](n)
+        for ((j, v) <- values) {
+          var k = 0
+          while (k < n) {
+            a_i(j) = a_i(j.toInt) + v * b_coord.lookup((j, k)).head
+            k += 1
+          }
         }
-      }
+        a_i.zipWithIndex
+    }.map {
+      case (i, (v, j)) => (i, j, v)
     }
   }
+
 
   // Vertical-Horizontal partition
   private def vhSparseProduct(a: SparseRDD, b: SparseRDD): SparseRDD = {

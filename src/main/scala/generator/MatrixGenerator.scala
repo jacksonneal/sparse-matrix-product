@@ -10,35 +10,32 @@ object MatrixGenerator {
 
   def main(args: Array[String]): Unit = {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-    if (args.length != 5) {
-      logger.error("Usage:\ngenerator.MatrixGenerator <i> <j> <k> <fill> <output_dir>")
+    if (args.length != 3) {
+      logger.error("Usage:\ngenerator.MatrixGenerator <n> <density> <output_dir>")
       System.exit(1)
     }
     val conf = new SparkConf().setAppName("Matrix Generator").setMaster("local[4]")
     val sc = new SparkContext(conf)
 
-    // matrix a has dimension i * j, matrix b has dimension j * k
-    val i = args(0).toLong
-    val j = args(1).toLong
-    val k = args(2).toLong
+    // Both a and b matrices have dimension nxn
+    val n = args(0).toLong
 
     // Used as probability that matrix value is non-zero
     val density = args(3).toDouble
 
     val output = args(4)
 
-    val a = this.getSparseMatrix(sc, i, j, density)
-    val b = this.getSparseMatrix(sc, j, k, density)
+    val a = this.getSparseMatrix(sc, n, density)
+    val b = this.getSparseMatrix(sc, n, density)
 
     a.saveAsTextFile(output + "a")
     b.saveAsTextFile(output + "b")
   }
 
-  private def getSparseMatrix(sc: SparkContext, n: Long, m: Long, density: Double): SparseRDD = {
+  private def getSparseMatrix(sc: SparkContext, n: Long, density: Double): SparseRDD = {
     val r = scala.util.Random
-    val i = sc.range(0, n)
-    val j = sc.range(0, m)
-    i.cartesian(j).map {
+    val n_range = sc.range(0, n)
+    n_range.cartesian(n_range).map {
       case (i, j) => (i, j, if (r.nextDouble() < density) r.nextInt(MAX).toLong else 0)
     }.filter {
       case (_, _, v) => v != 0
