@@ -5,7 +5,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
 object MatrixGenerator {
-  private val MAX = 100
+  private final val MAX = 100
   type SparseRDD = RDD[(Long, Long, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
@@ -17,7 +17,7 @@ object MatrixGenerator {
     val conf = new SparkConf().setAppName("Matrix Generator").setMaster("local[4]")
     val sc = new SparkContext(conf)
 
-    // matrixLeft has dimension i * j, matrixRight has dimension j * k
+    // matrix a has dimension i * j, matrix b has dimension j * k
     val i = args(0).toLong
     val j = args(1).toLong
     val k = args(2).toLong
@@ -27,11 +27,11 @@ object MatrixGenerator {
 
     val output = args(4)
 
-    val left = this.getSparseMatrix(sc, i, j, density)
-    val right = this.getSparseMatrix(sc, j, k, density)
+    val a = this.getSparseMatrix(sc, i, j, density)
+    val b = this.getSparseMatrix(sc, j, k, density)
 
-    left.saveAsTextFile(output + "left")
-    right.saveAsTextFile(output + "right")
+    a.saveAsTextFile(output + "a")
+    b.saveAsTextFile(output + "b")
   }
 
   private def getSparseMatrix(sc: SparkContext, n: Long, m: Long, density: Double): SparseRDD = {
