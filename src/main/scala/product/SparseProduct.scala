@@ -24,7 +24,7 @@ object SparseProduct {
 
     val aDir = args(1)
     val bDir = args(2)
-    val output = args(3) + "product"
+    val output = args(3)
 
     // Delete output directory, only to ease local development; will not work on AWS. ===========
     val hadoopConf = new org.apache.hadoop.conf.Configuration
@@ -104,7 +104,7 @@ object SparseProduct {
     for (p <- 0 until P) {
       // Iteratively send each each section of b to a different partition, mark as such
       // (p, b(j, b_j(k, v)))
-      val b_cur = b_row.map {
+      val b_par = b_row.map {
         case (j, b_j) => ((j + p) % P, (j, b_j))
       }.groupByKey(hp).mapValues {
         b_itr =>
@@ -119,7 +119,7 @@ object SparseProduct {
       // As a and b have partition as key and a has assigned partitioner, we can join them
       // use mapValues to keep a partitioned
       // (p, (i, a_i(i, v), c_i(i, v)))
-      a_par = a_par.leftOuterJoin(b_cur).mapValues {
+      a_par = a_par.leftOuterJoin(b_par).mapValues {
         case ((i, a_i, c_i), b) =>
           // the a partition may not be sent any non-zero b rows in a given iteration
           if (b.isDefined) {
