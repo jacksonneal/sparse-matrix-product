@@ -5,7 +5,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
 object MatrixGenerator {
-  private final val MAX = 100
+  private final val MAX = 10
   type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
@@ -23,13 +23,25 @@ object MatrixGenerator {
     // Used as probability that matrix value is non-zero
     val density = args(1).toDouble
 
-    val output = args(2)
+    val output_a = args(2) + "a"
+    val output_b = args(2) + "b"
+
+    // Delete output directory, only to ease local development; will not work on AWS. ===========
+    val hadoopConf = new org.apache.hadoop.conf.Configuration
+    val hdfs = org.apache.hadoop.fs.FileSystem.get(hadoopConf)
+    try {
+      hdfs.delete(new org.apache.hadoop.fs.Path(output_a), true)
+      hdfs.delete(new org.apache.hadoop.fs.Path(output_b), true)
+    } catch {
+      case _: Throwable =>
+    }
+    // ================
 
     val a = this.getSparseMatrix(sc, n, density)
     val b = this.getSparseMatrix(sc, n, density)
 
-    a.saveAsTextFile(output + "a")
-    b.saveAsTextFile(output + "b")
+    a.coalesce(1, shuffle = true).saveAsTextFile(output_a)
+    b.coalesce(1, shuffle = true).saveAsTextFile(output_b)
   }
 
   private def getSparseMatrix(sc: SparkContext, n: Int, density: Double): SparseRDD = {

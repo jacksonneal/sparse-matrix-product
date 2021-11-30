@@ -2,7 +2,7 @@ package product
 
 import org.apache.log4j.LogManager
 import org.apache.spark.rdd.RDD
-import org.apache.spark.{HashPartitioner, Partitioner, SparkConf, SparkContext}
+import org.apache.spark.{HashPartitioner, SparkConf, SparkContext}
 
 import scala.collection.mutable
 
@@ -30,19 +30,21 @@ object SparseProduct {
     val hadoopConf = new org.apache.hadoop.conf.Configuration
     val hdfs = org.apache.hadoop.fs.FileSystem.get(hadoopConf)
     try {
-      hdfs.delete(new org.apache.hadoop.fs.Path(output), true)
+      hdfs.delete(new org.apache.hadoop.fs.Path(output + "vh"), true)
+      hdfs.delete(new org.apache.hadoop.fs.Path(output + "nb"), true)
     } catch {
-      case _: Throwable => {}
+      case _: Throwable =>
     }
     // ================
 
     val a = parseSparse(sc, aDir)
     val b = parseSparse(sc, bDir)
 
-    //    val product = this.vhSparseProduct(a, b)
-    val product = this.naiveBlockRowSparseProduct(a, b, n)
+    val product_vh = this.vhSparseProduct(a, b)
+    val product_nb = this.naiveBlockRowSparseProduct(a, b, n)
 
-    product.saveAsTextFile(output)
+    product_vh.coalesce(1, shuffle = true).saveAsTextFile(output + "vh")
+    product_nb.coalesce(1, shuffle = true).saveAsTextFile(output + "nb")
   }
 
   private def parseSparse(sc: SparkContext, dir: String): SparseRDD = {
@@ -50,14 +52,6 @@ object SparseProduct {
       val split = line.substring(1, line.length() - 1).split(",")
       (split(0).toInt, split(1).toInt, split(2).toLong)
     })
-  }
-
-  class OffsetPartitioner(val numParts: Int, val numOffset: Int = 0) extends Partitioner {
-    def numPartitions: Int = numParts
-
-    def offset: Int = numOffset
-
-    override def getPartition(key: Any): Int = (key.asInstanceOf[String].charAt(0) + offset) % numPartitions
   }
 
   // Block partition: Naive Block Row
@@ -70,11 +64,11 @@ object SparseProduct {
       case (i, j, v) => (i, (j, v))
     }.groupByKey(hp).mapPartitionsWithIndex {
       case (p, a_p) => a_p.map {
-        case (i, a_i) =>
+        case (i, a_i_itr) =>
           // use map to track a_i
           // use map to track corresponding c_i
           val a_i = new mutable.HashMap[Int, Long]()
-          for ((k, v) <- a_i) {
+          for ((k, v) <- a_i_itr) {
             a_i(k) = v
           }
           (p, (i, a_i, new mutable.HashMap[Int, Long]()))
@@ -114,7 +108,7 @@ object SparseProduct {
             for (k <- 0 until n) {
               val b_jk = b_j.get(k)
               if (b_jk.isDefined) {
-                c_i(k) = c_i(k) + a_ij.get * b_jk.get
+                c_i(k) = c_i.getOrElse(k, 0L) + a_ij.get * b_jk.get
               }
             }
           }
