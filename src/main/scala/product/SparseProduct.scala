@@ -43,8 +43,20 @@ object SparseProduct {
     val product_vh = this.vhSparseProduct(a, b)
     val product_nb = this.naiveBlockRowSparseProduct(a, b, n)
 
-    product_vh.coalesce(1, shuffle = true).saveAsTextFile(output + "vh")
-    product_nb.coalesce(1, shuffle = true).saveAsTextFile(output + "nb")
+    assert(this.equal(product_nb, product_vh))
+  }
+
+  private def equal(a: SparseRDD, b: SparseRDD): Boolean = {
+    val a_coord = a.map {
+      case (i, j, v) => ((i, j), v)
+    }
+    val b_coord = b.map {
+      case (i, j, v) => ((i, j), v)
+    }
+    a_coord.fullOuterJoin(b_coord).filter {
+      case (_, (v, w)) =>
+        v.isEmpty || w.isEmpty || v.get != w.get
+    }.count() == 0
   }
 
   private def parseSparse(sc: SparkContext, dir: String): SparseRDD = {
