@@ -6,7 +6,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object MatrixGenerator {
   private final val MAX = 100
-  type SparseRDD = RDD[(Long, Long, Long)] // (i, j, v)
+  type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
@@ -18,12 +18,12 @@ object MatrixGenerator {
     val sc = new SparkContext(conf)
 
     // Both a and b matrices have dimension nxn
-    val n = args(0).toLong
+    val n = args(0).toInt
 
     // Used as probability that matrix value is non-zero
-    val density = args(3).toDouble
+    val density = args(1).toDouble
 
-    val output = args(4)
+    val output = args(2)
 
     val a = this.getSparseMatrix(sc, n, density)
     val b = this.getSparseMatrix(sc, n, density)
@@ -32,11 +32,11 @@ object MatrixGenerator {
     b.saveAsTextFile(output + "b")
   }
 
-  private def getSparseMatrix(sc: SparkContext, n: Long, density: Double): SparseRDD = {
+  private def getSparseMatrix(sc: SparkContext, n: Int, density: Double): SparseRDD = {
     val r = scala.util.Random
     val n_range = sc.range(0, n)
     n_range.cartesian(n_range).map {
-      case (i, j) => (i, j, if (r.nextDouble() < density) r.nextInt(MAX).toLong else 0)
+      case (i, j) => (i.toInt, j.toInt, if (r.nextDouble() < density) r.nextInt(MAX).toLong else 0)
     }.filter {
       case (_, _, v) => v != 0
     }
