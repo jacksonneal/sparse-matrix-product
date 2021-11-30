@@ -8,7 +8,7 @@ import scala.collection.mutable
 
 object SparseProduct {
   private final val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-  private final val P = 1 // # partitions
+  private final val P = 3 // # partitions
   type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
@@ -107,17 +107,20 @@ object SparseProduct {
       // As a and b have partition as key and a has assigned partitioner, we can join them
       // use mapValues to keep a partitioned
       // (p, (i, a_i(i, v), c_i(i, v)))
-      a_par = a_par.join(b_cur).mapValues {
+      a_par = a_par.leftOuterJoin(b_cur).mapValues {
         case ((i, a_i, c_i), b) =>
-          for ((j, b_j) <- b) {
-            val a_ij = a_i.get(j)
+          // the a partition may not be sent any non-zero b rows in a given iteration
+          if (b.isDefined) {
+            for ((j, b_j) <- b.get) {
+              val a_ij = a_i.get(j)
 
-            // If a_ij is not defined, b_j cannot contribute to any value in c_i
-            if (a_ij.isDefined) {
-              for (k <- 0 until n) {
-                val b_jk = b_j.get(k)
-                if (b_jk.isDefined) {
-                  c_i(k) = c_i.getOrElse(k, 0L) + a_ij.get * b_jk.get
+              // If a_ij is not defined, b_j cannot contribute to any value in c_i
+              if (a_ij.isDefined) {
+                for (k <- 0 until n) {
+                  val b_jk = b_j.get(k)
+                  if (b_jk.isDefined) {
+                    c_i(k) = c_i.getOrElse(k, 0L) + a_ij.get * b_jk.get
+                  }
                 }
               }
             }
