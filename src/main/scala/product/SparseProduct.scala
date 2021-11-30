@@ -8,7 +8,7 @@ import scala.collection.mutable
 
 object SparseProduct {
   private final val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-  private final val P = 3 // # partitions
+  private final val P = 1 // # partitions
   type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
@@ -90,25 +90,35 @@ object SparseProduct {
     }
 
     for (p <- 0 until P) {
-      // Iteratively send each row in b to a different partition, mark as such
-      // (p, (j, b_j(k, v)))
+      // Iteratively send each each section of b to a different partition, mark as such
+      // (p, b(j, b_j(k, v)))
       val b_cur = b_row.map {
         case (j, b_j) => ((j + p) % P, (j, b_j))
+      }.groupByKey(hp).mapValues {
+        b_itr =>
+          // b section will be stored as a nested map
+          val b = new mutable.HashMap[Int, mutable.HashMap[Int, Long]]()
+          for ((j, b_j) <- b_itr) {
+            b(j) = b_j
+          }
+          b
       }
 
       // As a and b have partition as key and a has assigned partitioner, we can join them
       // use mapValues to keep a partitioned
       // (p, (i, a_i(i, v), c_i(i, v)))
       a_par = a_par.join(b_cur).mapValues {
-        case ((i, a_i, c_i), (j, b_j)) =>
-          val a_ij = a_i.get(j)
+        case ((i, a_i, c_i), b) =>
+          for ((j, b_j) <- b) {
+            val a_ij = a_i.get(j)
 
-          // If a_ij is not defined, b_j cannot contribute to any value in c_i
-          if (a_ij.isDefined) {
-            for (k <- 0 until n) {
-              val b_jk = b_j.get(k)
-              if (b_jk.isDefined) {
-                c_i(k) = c_i.getOrElse(k, 0L) + a_ij.get * b_jk.get
+            // If a_ij is not defined, b_j cannot contribute to any value in c_i
+            if (a_ij.isDefined) {
+              for (k <- 0 until n) {
+                val b_jk = b_j.get(k)
+                if (b_jk.isDefined) {
+                  c_i(k) = c_i.getOrElse(k, 0L) + a_ij.get * b_jk.get
+                }
               }
             }
           }
