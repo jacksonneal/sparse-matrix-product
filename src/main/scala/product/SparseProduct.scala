@@ -8,7 +8,7 @@ import scala.collection.mutable
 
 object SparseProduct {
   private final val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-  private final val P = 10 // # partitions
+  private final val P = 3 // # partitions
   type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
@@ -24,7 +24,17 @@ object SparseProduct {
 
     val aDir = args(1)
     val bDir = args(2)
-    val output = args(3)
+    val output = args(3) + "product"
+
+    // Delete output directory, only to ease local development; will not work on AWS. ===========
+    val hadoopConf = new org.apache.hadoop.conf.Configuration
+    val hdfs = org.apache.hadoop.fs.FileSystem.get(hadoopConf)
+    try {
+      hdfs.delete(new org.apache.hadoop.fs.Path(output), true)
+    } catch {
+      case _: Throwable => {}
+    }
+    // ================
 
     val a = parseSparse(sc, aDir)
     val b = parseSparse(sc, bDir)
@@ -32,7 +42,7 @@ object SparseProduct {
     //    val product = this.vhSparseProduct(a, b)
     val product = this.naiveBlockRowSparseProduct(a, b, n)
 
-    product.saveAsTextFile(output + "product")
+    product.saveAsTextFile(output)
   }
 
   private def parseSparse(sc: SparkContext, dir: String): SparseRDD = {
@@ -55,62 +65,70 @@ object SparseProduct {
     val hp = new HashPartitioner(P)
 
     // Keep a grouped by row and marked by partition
-    // (p, (i, [(j, v)]))
+    // (p, (i, a_i(j, v), c_i(j, v)))
     var a_par = a.map {
       case (i, j, v) => (i, (j, v))
     }.groupByKey(hp).mapPartitionsWithIndex {
       case (p, a_p) => a_p.map {
         case (i, a_i) =>
+          // use map to track a_i
           // use map to track corresponding c_i
+          val a_i = new mutable.HashMap[Int, Long]()
+          for ((k, v) <- a_i) {
+            a_i(k) = v
+          }
           (p, (i, a_i, new mutable.HashMap[Int, Long]()))
       }
     }
 
     // Group b by row
+    // (j, b_j(k, v))
     val b_row = b.map {
       case (i, j, v) => (i, (j, v))
-    }.groupByKey()
+    }.groupByKey().mapValues {
+      values =>
+        // use map to store b_j values
+        val b_j = new mutable.HashMap[Int, Long]()
+        for ((k, v) <- values) {
+          b_j(k) = v
+        }
+        b_j
+    }
 
     for (p <- 0 until P) {
       // Iteratively send each row in b to a different partition, mark as such
-      // (p, (i, [(j, v)]))
+      // (p, (j, b_j(k, v)))
       val b_cur = b_row.map {
-        case (i, itr) => ((i + p) % P, (i, itr))
+        case (j, b_j) => ((j + p) % P, (j, b_j))
       }
 
-      // As a and b are marked by partition and a has partitioner, we can join them
-      // map values to keep a partitioned
+      // As a and b have partition as key and a has assigned partitioner, we can join them
+      // use mapValues to keep a partitioned
+      // (p, (i, a_i(i, v), c_i(i, v)))
       a_par = a_par.join(b_cur).mapValues {
         case ((i, a_i, c_i), (j, b_j)) =>
-          var a_ij = 0L
-          for ((_j, v) <- a_i) {
-            if (_j == j) {
-              a_ij = v
-            }
-          }
+          val a_ij = a_i.get(j)
 
-          if (a_ij != 0L) {
-            val b_j_map = new mutable.HashMap[Int, Long]()
-            for ((k, v) <- b_j) {
-              b_j_map(k) = v
-            }
-
+          // If a_ij is not defined, b_j cannot contribute to any value in c_i
+          if (a_ij.isDefined) {
             for (k <- 0 until n) {
-              val b_jk = b_j_map.get(k)
+              val b_jk = b_j.get(k)
               if (b_jk.isDefined) {
-                c_i(k) = c_i(k) + a_ij * b_jk.get
+                c_i(k) = c_i(k) + a_ij.get * b_jk.get
               }
             }
           }
 
+          // maintain row, a_i, and potentially updated c_i
           (i, a_i, c_i)
       }
     }
 
+    // Reformat c_i to SparseRDD
     a_par.flatMap {
       case (_, (i, _, c_i)) =>
-        c_i.zipWithIndex.map {
-          case (c_ij, j) => (i, j, c_ij)
+        c_i.map {
+          case (j, v) => (i, j, v)
         }
     }
   }
