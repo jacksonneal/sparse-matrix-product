@@ -1,50 +1,56 @@
 package generator
 
 import org.apache.log4j.LogManager
+import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
 object MatrixGenerator {
-  private val MAX = 100
+  private final val MAX = 10
+  type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
-  def main(args: Array[String]) {
+  def main(args: Array[String]): Unit = {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-    if (args.length != 5) {
-      logger.error("Usage:\ngenerator.MatrixGenerator <i> <j> <k> <fill> <output_dir>")
+    if (args.length != 3) {
+      logger.error("Usage:\ngenerator.MatrixGenerator <n> <density> <output_dir>")
       System.exit(1)
     }
     val conf = new SparkConf().setAppName("Matrix Generator").setMaster("local[4]")
     val sc = new SparkContext(conf)
 
-    // matrixLeft has dimension i * j, matrixRight has dimension j * k
-    val i = args(0)
-    val j = args(1)
-    val k = args(2)
+    // Both a and b matrices have dimension nxn
+    val n = args(0).toInt
 
     // Used as probability that matrix value is non-zero
-    val fill_prob = args(3).toDouble
+    val density = args(1).toDouble
 
-    val output = args(4)
+    val output_a = args(2) + "a"
+    val output_b = args(2) + "b"
 
+    // Delete output directory, only to ease local development; will not work on AWS. ===========
+    val hadoopConf = new org.apache.hadoop.conf.Configuration
+    val hdfs = org.apache.hadoop.fs.FileSystem.get(hadoopConf)
+    try {
+      hdfs.delete(new org.apache.hadoop.fs.Path(output_a), true)
+      hdfs.delete(new org.apache.hadoop.fs.Path(output_b), true)
+    } catch {
+      case _: Throwable =>
+    }
+    // ================
+
+    val a = this.getSparseMatrix(sc, n, density)
+    val b = this.getSparseMatrix(sc, n, density)
+
+    a.coalesce(1, shuffle = true).saveAsTextFile(output_a)
+    b.coalesce(1, shuffle = true).saveAsTextFile(output_b)
+  }
+
+  private def getSparseMatrix(sc: SparkContext, n: Int, density: Double): SparseRDD = {
     val r = scala.util.Random
-
-    val x = sc.range(0, i.toLong)
-    val y = sc.range(0, j.toLong)
-    val z = sc.range(0, k.toLong)
-
-    val left = x.cartesian(y).map {
-      case (x, y) => (x, y, if (r.nextDouble() < fill_prob) r.nextInt(MAX) else 0)
+    val n_range = sc.range(0, n)
+    n_range.cartesian(n_range).map {
+      case (i, j) => (i.toInt, j.toInt, if (r.nextDouble() < density) r.nextInt(MAX).toLong else 0)
     }.filter {
-      case (x, y, v) => v != 0
+      case (_, _, v) => v != 0
     }
-
-    val right = y.cartesian(z).map {
-      case (x, y) => (x, y, if (r.nextDouble() < fill_prob) r.nextInt(MAX) else 0)
-    }.filter {
-      case (x, y, v) => v != 0
-    }
-
-    left.saveAsTextFile(output + "left")
-
-    right.saveAsTextFile(output + "right")
   }
 }
