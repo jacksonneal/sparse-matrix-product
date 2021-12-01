@@ -8,7 +8,7 @@ import scala.collection.mutable
 
 object SparseProduct {
   private final val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-  private final val P = 5 // # partitions
+  private final val P = 4 // # partitions
   type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
@@ -43,9 +43,11 @@ object SparseProduct {
     val product_vh = this.vhSparseProduct(a, b)
     val product_nbr = this.naiveBlockRowSparseProduct(a, b, n)
     val product_ibr = this.improvedBlockRowSparseProduct(a, b, n)
+    val product_ss = this.sparseSummaProduct(a, b, n)
 
     assert(this.equal(product_nbr, product_vh))
     assert(this.equal(product_ibr, product_vh))
+    //    assert(this.equal(product_ss, product_vh))
   }
 
   private def equal(a: SparseRDD, b: SparseRDD): Boolean = {
@@ -66,6 +68,12 @@ object SparseProduct {
       val split = line.substring(1, line.length() - 1).split(",")
       (split(0).toInt, split(1).toInt, split(2).toLong)
     })
+  }
+
+  // Block Partition: Sparse SUMMA
+  private def sparseSummaProduct(a: SparseRDD, b: SparseRDD, n: Int): SparseRDD = {
+    val hp = new HashPartitioner(P)
+    a
   }
 
   // Block Partition: Improved Block Row
@@ -129,23 +137,20 @@ object SparseProduct {
     }.groupByKey(hp)
 
     // Join ac block rows with b block rows in same partition
-    ac_par = ac_par.leftOuterJoin(b_par).mapValues {
+    ac_par = ac_par.join(b_par).mapValues {
       case (ac, b) =>
-        // the a partition may not receive any non-zero b block rows
-        if (b.isDefined) {
-          // each a_i row corresponds to a c_i row
-          for ((_, (a_i, c_i)) <- ac) {
-            // each b_j row may contribute to output
-            for ((j, b_j) <- b.get) {
-              val a_ij = a_i.get(j)
-              // If a_ij is not defined, b_j cannot contribute to any value in c_i
-              if (a_ij.isDefined) {
-                for (k <- 0 until n) {
-                  val b_jk = b_j.get(k)
-                  // If b_jk is not defined, it will not contribute to c_ik
-                  if (b_jk.isDefined) {
-                    c_i(k) = c_i.getOrElse(k, 0L) + a_ij.get * b_jk.get
-                  }
+        // each a_i row corresponds to a c_i row
+        for ((_, (a_i, c_i)) <- ac) {
+          // each b_j row may contribute to output
+          for ((j, b_j) <- b) {
+            val a_ij = a_i.get(j)
+            // If a_ij is not defined, b_j cannot contribute to any value in c_i
+            if (a_ij.isDefined) {
+              for (k <- 0 until n) {
+                val b_jk = b_j.get(k)
+                // If b_jk is not defined, it will not contribute to c_ik
+                if (b_jk.isDefined) {
+                  c_i(k) = c_i.getOrElse(k, 0L) + a_ij.get * b_jk.get
                 }
               }
             }
