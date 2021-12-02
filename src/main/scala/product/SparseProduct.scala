@@ -4,6 +4,7 @@ import org.apache.log4j.LogManager
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{HashPartitioner, SparkConf, SparkContext}
 
+import scala.:+
 import scala.collection.mutable
 
 object SparseProduct {
@@ -43,11 +44,11 @@ object SparseProduct {
     val product_vh = this.vhSparseProduct(a, b)
     val product_nbr = this.naiveBlockRowSparseProduct(a, b, n)
     val product_ibr = this.improvedBlockRowSparseProduct(a, b, n)
-    val product_ss = this.sparseSummaProduct(a, b, n)
+    val product_ss = this.sparseSummaProduct(sc, a, b, n)
 
-    assert(this.equal(product_nbr, product_vh))
-    assert(this.equal(product_ibr, product_vh))
-    //    assert(this.equal(product_ss, product_vh))
+    //    assert(this.equal(product_nbr, product_vh))
+    //    assert(this.equal(product_ibr, product_vh))
+    assert(this.equal(product_ss, product_vh))
   }
 
   private def equal(a: SparseRDD, b: SparseRDD): Boolean = {
@@ -71,9 +72,51 @@ object SparseProduct {
   }
 
   // Block Partition: Sparse SUMMA
-  private def sparseSummaProduct(a: SparseRDD, b: SparseRDD, n: Int): SparseRDD = {
+  private def sparseSummaProduct(sc: SparkContext, a: SparseRDD, b: SparseRDD, n: Int): SparseRDD = {
     val hp = new HashPartitioner(P)
-    a
+    // c will be statically partitioned
+    var c_par = sc.range(0, P).map {
+      i => (i.toInt, new mutable.HashMap[(Int, Int), Long]())
+    }.partitionBy(hp)
+    // store a and b in groups what will be iteratively passed around partitions
+    var a_par = a.map {
+      case (i, j, v) => (i / P, ((i, j), v))
+    }.groupByKey(hp)
+    var b_par = b.map {
+      case (j, k, v) => (j / P, ((j, k), v))
+    }.groupByKey(hp).mapValues {
+      b_itr =>
+        // use map by col for easy lookup later
+        val b = new mutable.HashMap[Int, Seq[(Int, Long)]]()
+        for (((j, k), v) <- b_itr) {
+          b(k) = b.getOrElse(k, Seq.empty[(Int, Long)]) :+ (j, v)
+        }
+        b
+    }
+    // a and b will be iteratively passed to the correct c partition
+    for (p <- 0 until math.sqrt(P).toInt) {
+      a_par = a_par.map {
+        case (a_p, a) => ((a_p + p) % P, a)
+      }
+      b_par = b_par.map {
+        case (b_p, b) => ((b_p + p) % P, b)
+      }
+      c_par = c_par.join(a_par).join(b_par).mapValues {
+        case ((c, a), b) =>
+          for (((i, j), v) <- a) {
+            for ((k, w) <- b.getOrElse(j, Seq.empty[(Int, Long)])) {
+              c((i, k)) = c.getOrElse((i, k), 0L) + v * w
+            }
+          }
+          c
+      }
+    }
+    c_par.flatMap {
+      case (_, c) => c.map {
+        case ((i, k), v) =>
+          (i, k, v)
+      }
+    }
   }
 
   // Block Partition: Improved Block Row
