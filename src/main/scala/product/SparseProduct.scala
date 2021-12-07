@@ -4,11 +4,12 @@ import org.apache.log4j.LogManager
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{HashPartitioner, SparkConf, SparkContext}
 
+import scala.:+
 import scala.collection.mutable
 
 object SparseProduct {
   private final val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-  private final val P = 5 // # partitions
+  private final val P = 4 // # partitions, must be square
   type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
@@ -31,7 +32,7 @@ object SparseProduct {
     val hdfs = org.apache.hadoop.fs.FileSystem.get(hadoopConf)
     try {
       hdfs.delete(new org.apache.hadoop.fs.Path(output + "vh"), true)
-      hdfs.delete(new org.apache.hadoop.fs.Path(output + "nb"), true)
+      hdfs.delete(new org.apache.hadoop.fs.Path(output + "iss"), true)
     } catch {
       case _: Throwable =>
     }
@@ -43,9 +44,15 @@ object SparseProduct {
     val product_vh = this.vhSparseProduct(a, b)
     val product_nbr = this.naiveBlockRowSparseProduct(a, b, n)
     val product_ibr = this.improvedBlockRowSparseProduct(a, b, n)
+    val product_ss = this.sparseSummaProduct(sc, a, b, n)
+    val product_iss = this.improvedSparseSummaProduct(sc, a, b, n)
 
-    assert(this.equal(product_nbr, product_vh))
-    assert(this.equal(product_ibr, product_vh))
+    //    assert(this.equal(product_nbr, product_vh))
+    //    assert(this.equal(product_ibr, product_vh))
+    product_vh.coalesce(1, shuffle = true).saveAsTextFile(output + "vh")
+    product_iss.coalesce(1, shuffle = true).saveAsTextFile(output + "iss")
+
+    assert(this.equal(product_iss, product_vh))
   }
 
   private def equal(a: SparseRDD, b: SparseRDD): Boolean = {
@@ -66,6 +73,140 @@ object SparseProduct {
       val split = line.substring(1, line.length() - 1).split(",")
       (split(0).toInt, split(1).toInt, split(2).toLong)
     })
+  }
+
+  private def improvedSummaAPartitions(i: Int, j: Int, n: Int): List[Int] = {
+    val p_dim = math.sqrt(P).toInt
+    val row = (i / (n.toDouble / p_dim)).toInt
+    List.range(0, p_dim).map(col => row * p_dim + col)
+  }
+
+  private def improvedSummaBPartitions(j: Int, k: Int, n: Long): List[Int] = {
+    val p_dim = math.sqrt(P).toInt
+    val col = (k / (n.toDouble / p_dim)).toInt
+    List.range(0, p_dim).map(row => row * p_dim + col)
+  }
+
+  private def improvedSparseSummaProduct(sc: SparkContext, a: SparseRDD, b: SparseRDD, n: Int): SparseRDD = {
+    val hp = new HashPartitioner(P)
+    val a_par = a.flatMap {
+      case (i, j, v) =>
+        improvedSummaAPartitions(i, j, n).map(p => (p, (i, j, v)))
+    }.groupByKey(hp)
+//    a_par.coalesce(1, shuffle = true).saveAsTextFile("a_par")
+    val b_par = b.flatMap {
+      case (j, k, v) =>
+        improvedSummaBPartitions(j, k, n).map(p => (p, (j, k, v)))
+    }.groupByKey(hp).mapValues {
+      b_itr =>
+        // use map by col for easy lookup later
+        val b = new mutable.HashMap[Int, Seq[(Int, Long)]]()
+        for ((j, k, v) <- b_itr) {
+          b(j) = b.getOrElse(j, Seq.empty[(Int, Long)]) :+ (k, v)
+        }
+        b
+    }
+//    b_par.coalesce(1, shuffle = true).saveAsTextFile("b_par")
+    val c_par = a_par.join(b_par).mapValues {
+      case (a, b) =>
+        val c = new mutable.HashMap[(Int, Int), Long]()
+        for ((i, j, v) <- a) {
+          for ((k, w) <- b.getOrElse(j, Seq.empty[(Int, Long)])) {
+            c((i, k)) = c.getOrElse((i, k), 0L) + v * w
+          }
+        }
+        c
+    }
+    c_par.flatMap {
+      case (_, c) => c.map {
+        case ((i, k), v) =>
+          (i, k, v)
+      }
+    }
+  }
+
+  private def getSummaAPartition(i: Int, j: Int, n: Int): Int = {
+    val p_dim = math.sqrt(P).toInt
+    val row = (i / (n.toDouble / p_dim)).toInt
+    val col = ((j / (n.toDouble / p_dim)).toInt + (p_dim - row)) % p_dim
+    row * p_dim + col
+  }
+
+  private def getSummaBPartition(j: Int, k: Int, n: Int): Int = {
+    val p_dim = math.sqrt(P).toInt
+    val col = (k / (n.toDouble / p_dim)).toInt
+    val row = ((j / (n.toDouble / p_dim)).toInt + (p_dim - col)) % p_dim
+    row * p_dim + col
+  }
+
+  // Block Partition: Sparse SUMMA
+  private def sparseSummaProduct(sc: SparkContext, a: SparseRDD, b: SparseRDD, n: Int): SparseRDD = {
+    val hp = new HashPartitioner(P)
+    // c will be statically partitioned
+    var c_par = sc.range(0, P).map {
+      i => (i.toInt, new mutable.HashMap[(Int, Int), Long]())
+    }.partitionBy(hp)
+    //    c_par.coalesce(1, shuffle = true).saveAsTextFile("c_par")
+    // store a and b in groups what will be iteratively passed around partitions
+    val p_dim = math.sqrt(P).toInt
+    var a_par = a.map {
+      case (i, j, v) => (getSummaAPartition(i, j, n), (i, j, v))
+    }.groupByKey(hp)
+    //    a_par.coalesce(1, shuffle = true).saveAsTextFile("a_par")
+    var b_par = b.map {
+      case (j, k, v) => (getSummaBPartition(j, k, n), (j, k, v))
+    }.groupByKey(hp).mapValues {
+      b_itr =>
+        // use map by col for easy lookup later
+        val b = new mutable.HashMap[Int, Seq[(Int, Long)]]()
+        for ((j, k, v) <- b_itr) {
+          b(j) = b.getOrElse(j, Seq.empty[(Int, Long)]) :+ (k, v)
+        }
+        b
+    }
+    //    b_par.coalesce(1, shuffle = true).saveAsTextFile("b_par")
+    // a and b will be iteratively passed to the correct c partition
+    for (iter <- 0 until p_dim) {
+      if (iter != 0) {
+        a_par = a_par.map {
+          case (p, a) =>
+            var next_p = p + 1
+            if (next_p % p_dim == 0) {
+              next_p -= p_dim
+            }
+            (next_p, a)
+        }
+        b_par = b_par.map {
+          case (p, b) =>
+            ((p + p_dim) % P, b)
+        }
+      }
+
+      //      a_par.coalesce(1, shuffle = true).saveAsTextFile("a_par" + iter.toString)
+      //      b_par.coalesce(1, shuffle = true).saveAsTextFile("b_par" + iter.toString)
+
+      c_par = c_par.leftOuterJoin(a_par).leftOuterJoin(b_par).mapValues {
+        case ((c, a), b) =>
+          // TODO: they should always be defined
+          if (a.isDefined && b.isDefined) {
+            for ((i, j, v) <- a.get) {
+              for ((k, w) <- b.get.getOrElse(j, Seq.empty[(Int, Long)])) {
+                c((i, k)) = c.getOrElse((i, k), 0L) + v * w
+              }
+            }
+          }
+          c
+      }
+
+      //      c_par.coalesce(1, shuffle = true).saveAsTextFile("c_par" + iter.toString)
+    }
+
+    c_par.flatMap {
+      case (_, c) => c.map {
+        case ((i, k), v) =>
+          (i, k, v)
+      }
+    }
   }
 
   // Block Partition: Improved Block Row
@@ -129,23 +270,20 @@ object SparseProduct {
     }.groupByKey(hp)
 
     // Join ac block rows with b block rows in same partition
-    ac_par = ac_par.leftOuterJoin(b_par).mapValues {
+    ac_par = ac_par.join(b_par).mapValues {
       case (ac, b) =>
-        // the a partition may not receive any non-zero b block rows
-        if (b.isDefined) {
-          // each a_i row corresponds to a c_i row
-          for ((_, (a_i, c_i)) <- ac) {
-            // each b_j row may contribute to output
-            for ((j, b_j) <- b.get) {
-              val a_ij = a_i.get(j)
-              // If a_ij is not defined, b_j cannot contribute to any value in c_i
-              if (a_ij.isDefined) {
-                for (k <- 0 until n) {
-                  val b_jk = b_j.get(k)
-                  // If b_jk is not defined, it will not contribute to c_ik
-                  if (b_jk.isDefined) {
-                    c_i(k) = c_i.getOrElse(k, 0L) + a_ij.get * b_jk.get
-                  }
+        // each a_i row corresponds to a c_i row
+        for ((_, (a_i, c_i)) <- ac) {
+          // each b_j row may contribute to output
+          for ((j, b_j) <- b) {
+            val a_ij = a_i.get(j)
+            // If a_ij is not defined, b_j cannot contribute to any value in c_i
+            if (a_ij.isDefined) {
+              for (k <- 0 until n) {
+                val b_jk = b_j.get(k)
+                // If b_jk is not defined, it will not contribute to c_ik
+                if (b_jk.isDefined) {
+                  c_i(k) = c_i.getOrElse(k, 0L) + a_ij.get * b_jk.get
                 }
               }
             }
