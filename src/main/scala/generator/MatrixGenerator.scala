@@ -48,7 +48,7 @@ object MatrixGenerator {
     val r = scala.util.Random
     val n_range = sc.range(0, n)
     n_range.cartesian(n_range).map {
-      case (i, j) => (i.toInt, j.toInt, if (r.nextDouble() < density) r.nextInt(MAX).toLong else 0)
+      case (i, j) => (i.toInt, j.toInt, if (r.nextDouble() < density) r.nextInt(MAX).toLong + 1 else 0)
     }.filter {
       case (_, _, v) => v != 0
     }

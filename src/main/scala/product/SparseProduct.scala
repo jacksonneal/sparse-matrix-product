@@ -9,7 +9,7 @@ import scala.collection.mutable
 
 object SparseProduct {
   private final val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-  private final val P = 4 // # partitions
+  private final val P = 4 // # partitions, must be square
   type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
@@ -32,7 +32,7 @@ object SparseProduct {
     val hdfs = org.apache.hadoop.fs.FileSystem.get(hadoopConf)
     try {
       hdfs.delete(new org.apache.hadoop.fs.Path(output + "vh"), true)
-      hdfs.delete(new org.apache.hadoop.fs.Path(output + "nb"), true)
+      hdfs.delete(new org.apache.hadoop.fs.Path(output + "ss"), true)
     } catch {
       case _: Throwable =>
     }
@@ -48,6 +48,9 @@ object SparseProduct {
 
     //    assert(this.equal(product_nbr, product_vh))
     //    assert(this.equal(product_ibr, product_vh))
+    product_vh.coalesce(1, shuffle = true).saveAsTextFile(output + "vh")
+    product_ss.coalesce(1, shuffle = true).saveAsTextFile(output + "ss")
+
     assert(this.equal(product_ss, product_vh))
   }
 
@@ -71,6 +74,20 @@ object SparseProduct {
     })
   }
 
+  private def getSummaAPartition(i: Int, j: Int, n: Int) = {
+    val p_dim = math.sqrt(P).toInt
+    val row = (i / (n.toDouble / p_dim)).toInt
+    val col = ((j / (n.toDouble / p_dim)).toInt + (p_dim - row)) % p_dim
+    row * p_dim + col
+  }
+
+  private def getSummaBPartition(j: Int, k: Int, n: Int): Int = {
+    val p_dim = math.sqrt(P).toInt
+    val col = (k / (n.toDouble / p_dim)).toInt
+    val row = ((j / (n.toDouble / p_dim)).toInt + (p_dim - col)) % p_dim
+    row * p_dim + col
+  }
+
   // Block Partition: Sparse SUMMA
   private def sparseSummaProduct(sc: SparkContext, a: SparseRDD, b: SparseRDD, n: Int): SparseRDD = {
     val hp = new HashPartitioner(P)
@@ -78,39 +95,61 @@ object SparseProduct {
     var c_par = sc.range(0, P).map {
       i => (i.toInt, new mutable.HashMap[(Int, Int), Long]())
     }.partitionBy(hp)
+    //    c_par.coalesce(1, shuffle = true).saveAsTextFile("c_par")
     // store a and b in groups what will be iteratively passed around partitions
+    val p_dim = math.sqrt(P).toInt
     var a_par = a.map {
-      case (i, j, v) => (i / P, ((i, j), v))
+      case (i, j, v) => (getSummaAPartition(i, j, n), (i, j, v))
     }.groupByKey(hp)
+    //    a_par.coalesce(1, shuffle = true).saveAsTextFile("a_par")
     var b_par = b.map {
-      case (j, k, v) => (j / P, ((j, k), v))
+      case (j, k, v) => (getSummaBPartition(j, k, n), (j, k, v))
     }.groupByKey(hp).mapValues {
       b_itr =>
         // use map by col for easy lookup later
         val b = new mutable.HashMap[Int, Seq[(Int, Long)]]()
-        for (((j, k), v) <- b_itr) {
-          b(k) = b.getOrElse(k, Seq.empty[(Int, Long)]) :+ (j, v)
+        for ((j, k, v) <- b_itr) {
+          b(j) = b.getOrElse(j, Seq.empty[(Int, Long)]) :+ (k, v)
         }
         b
     }
+    //    b_par.coalesce(1, shuffle = true).saveAsTextFile("b_par")
     // a and b will be iteratively passed to the correct c partition
-    for (p <- 0 until math.sqrt(P).toInt) {
-      a_par = a_par.map {
-        case (a_p, a) => ((a_p + p) % P, a)
+    for (iter <- 0 until p_dim) {
+      if (iter != 0) {
+        a_par = a_par.map {
+          case (p, a) =>
+            var next_p = p + 1
+            if (next_p % p_dim == 0) {
+              next_p -= p_dim
+            }
+            (next_p, a)
+        }
+        b_par = b_par.map {
+          case (p, b) =>
+            ((p + p_dim) % P, b)
+        }
       }
-      b_par = b_par.map {
-        case (b_p, b) => ((b_p + p) % P, b)
-      }
-      c_par = c_par.join(a_par).join(b_par).mapValues {
+
+      //      a_par.coalesce(1, shuffle = true).saveAsTextFile("a_par" + iter.toString)
+      //      b_par.coalesce(1, shuffle = true).saveAsTextFile("b_par" + iter.toString)
+
+      c_par = c_par.leftOuterJoin(a_par).leftOuterJoin(b_par).mapValues {
         case ((c, a), b) =>
-          for (((i, j), v) <- a) {
-            for ((k, w) <- b.getOrElse(j, Seq.empty[(Int, Long)])) {
-              c((i, k)) = c.getOrElse((i, k), 0L) + v * w
+          // TODO: they should always be defined
+          if (a.isDefined && b.isDefined) {
+            for ((i, j, v) <- a.get) {
+              for ((k, w) <- b.get.getOrElse(j, Seq.empty[(Int, Long)])) {
+                c((i, k)) = c.getOrElse((i, k), 0L) + v * w
+              }
             }
           }
           c
       }
+
+      //      c_par.coalesce(1, shuffle = true).saveAsTextFile("c_par" + iter.toString)
     }
+
     c_par.flatMap {
       case (_, c) => c.map {
         case ((i, k), v) =>
