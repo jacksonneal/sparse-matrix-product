@@ -32,7 +32,7 @@ object SparseProduct {
     val hdfs = org.apache.hadoop.fs.FileSystem.get(hadoopConf)
     try {
       hdfs.delete(new org.apache.hadoop.fs.Path(output + "vh"), true)
-      hdfs.delete(new org.apache.hadoop.fs.Path(output + "ss"), true)
+      hdfs.delete(new org.apache.hadoop.fs.Path(output + "iss"), true)
     } catch {
       case _: Throwable =>
     }
@@ -45,13 +45,14 @@ object SparseProduct {
     val product_nbr = this.naiveBlockRowSparseProduct(a, b, n)
     val product_ibr = this.improvedBlockRowSparseProduct(a, b, n)
     val product_ss = this.sparseSummaProduct(sc, a, b, n)
+    val product_iss = this.improvedSparseSummaProduct(sc, a, b, n)
 
     //    assert(this.equal(product_nbr, product_vh))
     //    assert(this.equal(product_ibr, product_vh))
     product_vh.coalesce(1, shuffle = true).saveAsTextFile(output + "vh")
-    product_ss.coalesce(1, shuffle = true).saveAsTextFile(output + "ss")
+    product_iss.coalesce(1, shuffle = true).saveAsTextFile(output + "iss")
 
-    assert(this.equal(product_ss, product_vh))
+    assert(this.equal(product_iss, product_vh))
   }
 
   private def equal(a: SparseRDD, b: SparseRDD): Boolean = {
@@ -74,7 +75,57 @@ object SparseProduct {
     })
   }
 
-  private def getSummaAPartition(i: Int, j: Int, n: Int) = {
+  private def improvedSummaAPartitions(i: Int, j: Int, n: Int): List[Int] = {
+    val p_dim = math.sqrt(P).toInt
+    val row = (i / (n.toDouble / p_dim)).toInt
+    List.range(0, p_dim).map(col => row * p_dim + col)
+  }
+
+  private def improvedSummaBPartitions(j: Int, k: Int, n: Long): List[Int] = {
+    val p_dim = math.sqrt(P).toInt
+    val col = (k / (n.toDouble / p_dim)).toInt
+    List.range(0, p_dim).map(row => row * p_dim + col)
+  }
+
+  private def improvedSparseSummaProduct(sc: SparkContext, a: SparseRDD, b: SparseRDD, n: Int): SparseRDD = {
+    val hp = new HashPartitioner(P)
+    val a_par = a.flatMap {
+      case (i, j, v) =>
+        improvedSummaAPartitions(i, j, n).map(p => (p, (i, j, v)))
+    }.groupByKey(hp)
+//    a_par.coalesce(1, shuffle = true).saveAsTextFile("a_par")
+    val b_par = b.flatMap {
+      case (j, k, v) =>
+        improvedSummaBPartitions(j, k, n).map(p => (p, (j, k, v)))
+    }.groupByKey(hp).mapValues {
+      b_itr =>
+        // use map by col for easy lookup later
+        val b = new mutable.HashMap[Int, Seq[(Int, Long)]]()
+        for ((j, k, v) <- b_itr) {
+          b(j) = b.getOrElse(j, Seq.empty[(Int, Long)]) :+ (k, v)
+        }
+        b
+    }
+//    b_par.coalesce(1, shuffle = true).saveAsTextFile("b_par")
+    val c_par = a_par.join(b_par).mapValues {
+      case (a, b) =>
+        val c = new mutable.HashMap[(Int, Int), Long]()
+        for ((i, j, v) <- a) {
+          for ((k, w) <- b.getOrElse(j, Seq.empty[(Int, Long)])) {
+            c((i, k)) = c.getOrElse((i, k), 0L) + v * w
+          }
+        }
+        c
+    }
+    c_par.flatMap {
+      case (_, c) => c.map {
+        case ((i, k), v) =>
+          (i, k, v)
+      }
+    }
+  }
+
+  private def getSummaAPartition(i: Int, j: Int, n: Int): Int = {
     val p_dim = math.sqrt(P).toInt
     val row = (i / (n.toDouble / p_dim)).toInt
     val col = ((j / (n.toDouble / p_dim)).toInt + (p_dim - row)) % p_dim
