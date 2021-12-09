@@ -4,8 +4,6 @@ import org.apache.log4j.LogManager
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{HashPartitioner, SparkConf, SparkContext}
 
-import java.nio.file.Paths
-
 object SparseProduct {
   private final val logger: org.apache.log4j.Logger = LogManager.getRootLogger
   final val P = 4 // # partitions, must be square
@@ -38,7 +36,8 @@ object SparseProduct {
     val a = parseSparse(sc, aDir)
     val b = parseSparse(sc, bDir)
 
-    val product = VerticalHorizontal.sparseProduct(a, b, N, sc)
+    //    val product = VerticalHorizontal.sparseProduct(a, b, N, sc)
+    val product = NaiveBlockRow.sparseProduct(a, b, N, sc)
 
     product.saveAsTextFile(output)
   }
