@@ -25,13 +25,11 @@ object NaiveSUMMA extends Multiplier {
     var c_par = sc.range(0, P).map {
       i => (i.toInt, new mutable.HashMap[(Int, Int), Long]())
     }.partitionBy(HP)
-    //    c_par.coalesce(1, shuffle = true).saveAsTextFile("c_par")
     // store a and b in groups what will be iteratively passed around partitions
     val p_dim = math.sqrt(P).toInt
     var a_par = a.map {
       case (i, j, v) => (getSummaAPartition(i, j, n), (i, j, v))
     }.groupByKey(HP)
-    //    a_par.coalesce(1, shuffle = true).saveAsTextFile("a_par")
     var b_par = b.map {
       case (j, k, v) => (getSummaBPartition(j, k, n), (j, k, v))
     }.groupByKey(HP).mapValues {
@@ -43,7 +41,7 @@ object NaiveSUMMA extends Multiplier {
         }
         b
     }
-    //    b_par.coalesce(1, shuffle = true).saveAsTextFile("b_par")
+
     // a and b will be iteratively passed to the correct c partition
     for (iter <- 0 until p_dim) {
       if (iter != 0) {
@@ -61,12 +59,8 @@ object NaiveSUMMA extends Multiplier {
         }
       }
 
-      //      a_par.coalesce(1, shuffle = true).saveAsTextFile("a_par" + iter.toString)
-      //      b_par.coalesce(1, shuffle = true).saveAsTextFile("b_par" + iter.toString)
-
       c_par = c_par.leftOuterJoin(a_par).leftOuterJoin(b_par).mapValues {
         case ((c, a), b) =>
-          // TODO: they should always be defined
           if (a.isDefined && b.isDefined) {
             for ((i, j, v) <- a.get) {
               for ((k, w) <- b.get.getOrElse(j, Seq.empty[(Int, Long)])) {
@@ -76,8 +70,6 @@ object NaiveSUMMA extends Multiplier {
           }
           c
       }
-
-      //      c_par.coalesce(1, shuffle = true).saveAsTextFile("c_par" + iter.toString)
     }
 
     c_par.flatMap {

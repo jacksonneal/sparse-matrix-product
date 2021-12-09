@@ -1,6 +1,6 @@
 package product
 
-import org.apache.spark.{SparkContext}
+import org.apache.spark.SparkContext
 import product.SparseProduct.{P, HP, SparseRDD}
 
 import scala.collection.mutable
@@ -23,7 +23,6 @@ object ImprovedSUMMA extends Multiplier {
       case (i, j, v) =>
         improvedSummaAPartitions(i, j, n).map(p => (p, (i, j, v)))
     }.groupByKey(HP)
-    //    a_par.coalesce(1, shuffle = true).saveAsTextFile("a_par")
     val b_par = b.flatMap {
       case (j, k, v) =>
         improvedSummaBPartitions(j, k, n).map(p => (p, (j, k, v)))
@@ -36,7 +35,6 @@ object ImprovedSUMMA extends Multiplier {
         }
         b
     }
-    //    b_par.coalesce(1, shuffle = true).saveAsTextFile("b_par")
     val c_par = a_par.join(b_par).mapValues {
       case (a, b) =>
         val c = new mutable.HashMap[(Int, Int), Long]()

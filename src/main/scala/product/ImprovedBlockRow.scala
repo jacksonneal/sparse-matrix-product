@@ -31,7 +31,7 @@ object ImprovedBlockRow extends Multiplier {
     })
 
     // Store the non-zero a block row sub-cols that are present in each partition
-    // Will be used to efficiently send b blow rows
+    // Will be used to efficiently send b block rows
     val p_nz_col = ac_par.map {
       case (p, ac) =>
         // Make set of sub-col that have non-zeros
@@ -48,7 +48,7 @@ object ImprovedBlockRow extends Multiplier {
     // Evaluate which partition each b row needs to be sent to
     // Group and partition b rows, using same partitioner as a
     val b_par = b.map {
-      case (i, j, v) => (i, (j, v))
+      case (j, k, v) => (j, (k, v))
     }.groupByKey(HP).mapValues {
       values =>
         // use map to store b_j values
