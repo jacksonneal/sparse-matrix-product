@@ -20,8 +20,8 @@ object SparseProductTest {
     val n = args(0).toInt
     val d = args(1).toDouble
 
-    val a = MatrixGenerator.getSparseMatrix(sc, n, d)
-    val b = MatrixGenerator.getSparseMatrix(sc, n, d)
+    val a = MatrixGenerator.getSparseMatrix(sc, n, d).persist()
+    val b = MatrixGenerator.getSparseMatrix(sc, n, d).persist()
 
     val product_vh = VerticalHorizontal.sparseProduct(a, b, n, sc)
     val product_nbr = NaiveBlockRow.sparseProduct(a, b, n, sc)
