@@ -43,3 +43,6 @@ hs_err_pid*
 
 # MacOS
 .DS_Store
+
+dataset1/
+dataset2/

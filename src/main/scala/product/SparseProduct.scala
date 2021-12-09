@@ -6,9 +6,9 @@ import org.apache.spark.{HashPartitioner, SparkConf, SparkContext}
 
 object SparseProduct {
   private final val logger: org.apache.log4j.Logger = LogManager.getRootLogger
-  final val P = 4 // # partitions, must be square
+  final val P = 100 // # partitions, must be square
   final val HP = new HashPartitioner(P) // default partitioner
-  private final val N = 4 // matrices are of dimension NxN
+  private final val N = 6000 // matrices are of dimension NxN
   type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
@@ -36,9 +36,11 @@ object SparseProduct {
     val a = parseSparse(sc, aDir)
     val b = parseSparse(sc, bDir)
 
-    //    val product = VerticalHorizontal.sparseProduct(a, b, N, sc)
+    val product = VerticalHorizontal.sparseProduct(a, b, N, sc)
     //    val product = NaiveBlockRow.sparseProduct(a, b, N, sc)
-    val product = ImprovedBlockRow.sparseProduct(a, b, N, sc)
+    //    val product = ImprovedBlockRow.sparseProduct(a, b, N, sc)
+    //    val product = NaiveSUMMA.sparseProduct(a, b, N, sc)
+    //    val product = ImprovedSUMMA.sparseProduct(a, b, N, sc)
 
     product.saveAsTextFile(output)
   }

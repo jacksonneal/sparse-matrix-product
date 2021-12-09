@@ -23,7 +23,7 @@ aws.input.a=input/a
 aws.input.b=input/b
 aws.output=output
 aws.log.dir=log
-aws.num.nodes=1
+aws.num.nodes=5
 aws.instance.type=m5.xlarge
 # -----------------------------------------------------------
 
