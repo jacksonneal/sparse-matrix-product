@@ -24,7 +24,7 @@ aws.input.b=input/b
 aws.output=output
 aws.log.dir=log
 aws.num.nodes=1
-aws.instance.type=m4.large
+aws.instance.type=m5.xlarge
 # -----------------------------------------------------------
 
 # Compiles code and builds jar (with dependencies).
