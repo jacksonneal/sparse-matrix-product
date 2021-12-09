@@ -1,13 +1,13 @@
-# Makefile for Spark TriangleCount project.
+# Makefile for Spark Sparse Product project.
 
 # Customize these paths for your environment.
 # -----------------------------------------------------------
 spark.root=/Users/landonneal/jacksonn/CS6240/spark-3.1.2-bin-without-hadoop
 hadoop.root=/Users/landonneal/jacksonn/CS6240/hadoop-3.3.0
-app.name=Triangle Count
-jar.name=spark-hw3.jar
-maven.jar.name=spark-hw3-1.0.jar
-job.name=tc.Rep_R_Main
+app.name=Sparse Product
+jar.name=spark-sparse-product.jar
+maven.jar.name=spark-sparse-product-1.0.jar
+job.name=product.SparseProduct
 local.master=local[4]
 local.input=input
 local.output=output
@@ -17,7 +17,7 @@ hdfs.input=input
 hdfs.output=output
 # AWS EMR Execution
 aws.emr.release=emr-6.2.0
-aws.bucket.name=spark-hw3-jn
+aws.bucket.name=spark-sparse-product-jn
 aws.input=input
 aws.output=output
 aws.log.dir=log
@@ -110,7 +110,7 @@ upload-app-aws:
 # Main EMR launch.
 aws: jar upload-app-aws delete-output-aws
 	aws emr create-cluster \
-		--name "TriangleCount Spark Cluster" \
+		--name "Sparse Product Spark Cluster" \
 		--release-label ${aws.emr.release} \
 		--instance-groups '[{"InstanceCount":${aws.num.nodes},"InstanceGroupType":"CORE","InstanceType":"${aws.instance.type}"},{"InstanceCount":1,"InstanceGroupType":"MASTER","InstanceType":"${aws.instance.type}"}]' \
 	    --applications Name=Hadoop Name=Spark \

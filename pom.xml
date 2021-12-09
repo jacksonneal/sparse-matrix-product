@@ -2,10 +2,10 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>cs6240</groupId>
-    <artifactId>spark-hw3</artifactId>
+    <artifactId>spark-sparse-product</artifactId>
     <packaging>jar</packaging>
     <version>1.0</version>
-    <name>spark-hw3</name>
+    <name>spark-sparse-product</name>
     <properties>
         <encoding>UTF-8</encoding>
         <scala.version>2.12.13</scala.version>
