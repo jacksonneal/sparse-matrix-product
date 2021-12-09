@@ -10,20 +10,20 @@ object SparseProduct {
   private final val logger: org.apache.log4j.Logger = LogManager.getRootLogger
   final val P = 4 // # partitions, must be square
   final val HP = new HashPartitioner(P) // default partitioner
-  final val N = 5 // matrices are of dimension NxN
+  final val N = 4 // matrices are of dimension NxN
   type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
-    if (args.length != 2) {
-      logger.error("Usage:\nproduct.SparseProduct <input_dir> <output_dir>")
+    if (args.length != 3) {
+      logger.error("Usage:\nproduct.SparseProduct <a_dir> <b_dir> <output_dir>")
       System.exit(1)
     }
-    val conf = new SparkConf().setAppName("Sparse Product").setMaster("local[4]")
+    val conf = new SparkConf().setAppName("Sparse Product") // .setMaster("local[4]")
     val sc = new SparkContext(conf)
 
-    val aDir = Paths.get(args(0), "a").toString
-    val bDir = Paths.get(args(0), "b").toString
-    val output = args(1)
+    val aDir = args(0)
+    val bDir = args(1)
+    val output = args(2)
 
     // Delete output directory, only to ease local development; will not work on AWS. ===========
     //    val hadoopConf = new org.apache.hadoop.conf.Configuration
@@ -46,7 +46,7 @@ object SparseProduct {
   private def parseSparse(sc: SparkContext, dir: String): SparseRDD = {
     sc.textFile(dir).map(line => {
       val split = line.substring(1, line.length() - 1).split(",")
-      (split(0).toInt, split(1).toInt, split(2).toLong)
+      (split(1).toInt, split(2).toInt, split(3).toLong)
     })
   }
 }

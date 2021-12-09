@@ -9,7 +9,8 @@ jar.name=spark-sparse-product.jar
 maven.jar.name=spark-sparse-product-1.0.jar
 job.name=product.SparseProduct
 local.master=local[4]
-local.input=input
+local.input.a=input/a
+local.input.b=input/b
 local.output=output
 # Pseudo-Cluster Execution
 hdfs.user.name=landonneal
@@ -18,10 +19,11 @@ hdfs.output=output
 # AWS EMR Execution
 aws.emr.release=emr-6.2.0
 aws.bucket.name=spark-sparse-product-jn
-aws.input=input
+aws.input.a=input/a
+aws.input.b=input/b
 aws.output=output
 aws.log.dir=log
-aws.num.nodes=8
+aws.num.nodes=1
 aws.instance.type=m4.large
 # -----------------------------------------------------------
 
@@ -36,7 +38,7 @@ clean-local-output:
 
 # Runs standalone
 local: jar clean-local-output
-	spark-submit --class ${job.name} --master ${local.master} --name "${app.name}" ${jar.name} ${local.input} ${local.output}
+	spark-submit --class ${job.name} --master ${local.master} --name "${app.name}" ${jar.name} ${local.input.a} ${local.input.b} ${local.output}
 
 # Start HDFS
 start-hdfs:
@@ -97,7 +99,8 @@ make-bucket:
 
 # Upload data to S3 input dir.
 upload-input-aws: make-bucket
-	aws s3 sync ${local.input} s3://${aws.bucket.name}/${aws.input}
+	aws s3 sync ${local.input.a} s3://${aws.bucket.name}/${aws.input.a}
+	aws s3 sync ${local.input.b} s3://${aws.bucket.name}/${aws.input.b}
 	
 # Delete S3 output dir.
 delete-output-aws:
@@ -114,7 +117,7 @@ aws: jar upload-app-aws delete-output-aws
 		--release-label ${aws.emr.release} \
 		--instance-groups '[{"InstanceCount":${aws.num.nodes},"InstanceGroupType":"CORE","InstanceType":"${aws.instance.type}"},{"InstanceCount":1,"InstanceGroupType":"MASTER","InstanceType":"${aws.instance.type}"}]' \
 	    --applications Name=Hadoop Name=Spark \
-		--steps Type=CUSTOM_JAR,Name="${app.name}",Jar="command-runner.jar",ActionOnFailure=TERMINATE_CLUSTER,Args=["spark-submit","--deploy-mode","cluster","--class","${job.name}","s3://${aws.bucket.name}/${jar.name}","s3://${aws.bucket.name}/${aws.input}","s3://${aws.bucket.name}/${aws.output}"] \
+		--steps Type=CUSTOM_JAR,Name="${app.name}",Jar="command-runner.jar",ActionOnFailure=TERMINATE_CLUSTER,Args=["spark-submit","--deploy-mode","cluster","--class","${job.name}","s3://${aws.bucket.name}/${jar.name}","s3://${aws.bucket.name}/${aws.input.a}","s3://${aws.bucket.name}/${aws.input.b}","s3://${aws.bucket.name}/${aws.output}"] \
 		--log-uri s3://${aws.bucket.name}/${aws.log.dir} \
 		--use-default-roles \
 		--enable-debugging \
