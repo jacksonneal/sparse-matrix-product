@@ -1,12 +1,11 @@
 package generator
 
 import org.apache.log4j.LogManager
-import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
+import product.SparseProduct.SparseRDD
 
 object MatrixGenerator {
   private final val MAX = 10
-  type SparseRDD = RDD[(Int, Int, Long)] // (i, j, v)
 
   def main(args: Array[String]): Unit = {
     val logger: org.apache.log4j.Logger = LogManager.getRootLogger
@@ -44,7 +43,7 @@ object MatrixGenerator {
     b.coalesce(1, shuffle = true).saveAsTextFile(output_b)
   }
 
-  private def getSparseMatrix(sc: SparkContext, n: Int, density: Double): SparseRDD = {
+  def getSparseMatrix(sc: SparkContext, n: Int, density: Double): SparseRDD = {
     val r = scala.util.Random
     val n_range = sc.range(0, n)
     n_range.cartesian(n_range).map {
